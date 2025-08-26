@@ -1,15 +1,15 @@
 import { drizzle } from "drizzle-orm/node-postgres";
-import { Client } from "pg";
+import { Pool } from "pg";
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL is not set");
 
-const client = new Client({
-  connectionString: url,
-  // DEV FIX: handle "self-signed certificate in certificate chain"
-  ssl: { rejectUnauthorized: false },
+const isProd = process.env.NODE_ENV === "production";
+const allowInsecure = process.env.ALLOW_INSECURE_SSL === "true";
+
+export const pool = new Pool({
+  connectionString: url,                               // keep ?sslmode=require in the URL
+  ssl: isProd && !allowInsecure ? true : { rejectUnauthorized: false },
 });
 
-client.connect();
-
-export const db = drizzle(client);
+export const db = drizzle(pool);

@@ -22,7 +22,6 @@ export async function GET(req: Request) {
     return NextResponse.json(out);
   } catch (e) {
     console.error("GET /api/leads error:", e);
-    // TEMP fallback so UI keeps working
-    return NextResponse.json([], { status: 200 });
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }
