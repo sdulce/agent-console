@@ -1,0 +1,49 @@
+@host = http://localhost:3000
+
+### 1) GET leads (should be [] the first time)
+GET {{host}}/api/leads
+
+### 2) Seed a lead
+POST {{host}}/api/leads/ingest
+Content-Type: application/json
+
+{
+  "id": "ld_demo_1",
+  "name": "John Smith",
+  "source": "Zillow",
+  "phone": "+16265550101",
+  "location": "Pasadena, CA",
+  "priceRange": "$900k–$1.2M",
+  "notes": "3BR near Caltech",
+  "assignedAgentId": "you",
+  "slaSeconds": 120,
+  "score": 0.82
+}
+
+### 3) Mark responded
+POST {{host}}/api/leads/ld_demo_1/responded
+
+### 4) Create a compliance task
+POST {{host}}/api/tasks/compliance
+Content-Type: application/json
+
+{
+  "id": "ct_demo_1",
+  "type": "buyer_agreement",
+  "client": "Mary Jones",
+  "status": "missing",
+  "agentId": "you",
+  "dueDate": "2025-09-01T00:00:00Z"
+}
+
+### 5) Get compliance tasks for agent
+GET {{host}}/api/tasks/compliance?agentId=you
+
+### 6) Snooze the task by 1 day
+POST {{host}}/api/compliance/ct_demo_1/snooze
+Content-Type: application/json
+
+{ "days": 1 }
+
+### 7) Complete the task
+POST {{host}}/api/compliance/ct_demo_1/complete
