@@ -1,4 +1,5 @@
-import { pgTable, text, timestamp, boolean, integer, numeric, date } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, boolean, integer, numeric } from "drizzle-orm/pg-core";
+
 
 // --- leads ---
 export const leads = pgTable("leads", {
@@ -24,10 +25,10 @@ export const complianceTasks = pgTable("compliance_tasks", {
   id: text("id").primaryKey(),
   type: text("type").notNull(),     // "buyer_agreement" | "comp_disclosure"
   client: text("client").notNull(),
-  status: text("status").notNull(), // "missing" | "pending" | "done"
+  status: text("status").notNull(), // "missing" | "pending" | "completed"
   agentId: text("agent_id"),
-  // ✅ date-only column (no time)
-  dueDate: timestamp("due_date", { withTimezone: true, mode: "date" }),
+  // due moment (timestamp with timezone); use `date("due_at")` if you want date-only
+  dueAt: timestamp("due_at", { withTimezone: true, mode: "date" }),
   // ✅ store with timezone
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow().notNull(),
 });
