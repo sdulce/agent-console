@@ -1,41 +1,70 @@
-import { NextResponse } from "next/server";
-import { z, ZodError } from "zod";
-import { db } from "@/server/db";
-import { complianceTasks } from "@/server/schema";
+export const runtime = "nodejs";
 
-const Body = z.object({
-  id: z.string().optional(),
-  type: z.enum(["buyer_agreement", "comp_disclosure"]),
-  client: z.string(),
-  status: z.enum(["missing", "pending", "done"]).default("missing"),
-  agentId: z.string().nullable().optional(),
-  // ISO 8601 datetime string like "2025-08-26T12:00:00.000Z" or null
-  dueDate: z.string().datetime().nullable().optional(),
-});
+import { NextRequest, NextResponse } from "next/server";
+import { query } from "@/server/db";
 
-export async function POST(req: Request) {
+type ComplianceItem = {
+  id?: string;
+  type: string;
+  client: string;
+  status?: "pending" | "in_review" | "completed" | "overdue";
+  agentId?: string | null;
+  dueDate?: string | null; // ISO string
+};
+
+const allowed = new Set(["pending", "in_review", "completed", "overdue"] as const);
+
+export async function POST(req: NextRequest) {
   try {
-    const b = Body.parse(await req.json());
-    const id = b.id ?? `ct_${Date.now()}`;
+    const payload = (await req.json()) as ComplianceItem | ComplianceItem[];
+    const items: ComplianceItem[] = Array.isArray(payload) ? payload : [payload];
 
-    // Write to DB (timestamp column expects a Date | null)
-    await db.insert(complianceTasks).values({
-      id,
-      type: b.type,
-      client: b.client,
-      status: b.status,
-      agentId: b.agentId ?? null,
-      dueDate: b.dueDate ? (new Date(b.dueDate) as any) : null,
+    if (items.length === 0) {
+      return NextResponse.json({ error: "no items" }, { status: 400 });
+    }
+
+    // Validate quickly
+    for (const it of items) {
+      if (!it.type || !it.client) {
+        return NextResponse.json({ error: "type and client are required for each item" }, { status: 400 });
+      }
+      if (it.status && !allowed.has(it.status)) {
+        return NextResponse.json({ error: `invalid status: ${it.status}` }, { status: 400 });
+      }
+    }
+
+    // Build multi-row insert into compliance_tasks (snake_case)
+    const cols = ["id", "type", "client", "status", "agent_id", "due_at"] as const;
+    const values: unknown[] = [];
+    const tuples: string[] = [];
+
+    items.forEach((it, idx) => {
+      const base = idx * cols.length;
+      tuples.push(
+        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6})`
+      );
+      values.push(
+        it.id ?? null,
+        it.type,
+        it.client,
+        it.status ?? "pending",
+        it.agentId ?? null,
+        it.dueDate ?? null
+      );
     });
 
-    return NextResponse.json({ ok: true, id });
-  } catch (e: any) {
-    // ← This is the part that prevents a vague 500 and tells us what failed
-    if (e instanceof ZodError) {
-      console.error("Validation error:", e.issues);
-      return NextResponse.json({ error: "Validation failed", issues: e.issues }, { status: 400 });
-    }
-    console.error("POST /api/tasks/compliance/ingest error:", e);
-    return NextResponse.json({ error: e?.message ?? "Internal Server Error" }, { status: 500 });
+    await query(
+      `
+      insert into compliance_tasks (${cols.join(", ")})
+      values ${tuples.join(", ")}
+    `,
+      values
+    );
+
+    return NextResponse.json({ ok: true, inserted: items.length });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    console.error("[POST /api/tasks/compliance/ingest] ERROR:", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

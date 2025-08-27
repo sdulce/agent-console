@@ -1,27 +1,89 @@
-import { NextResponse } from "next/server";
-import { db } from "@/server/db";
-import { leads } from "@/server/schema";
-import { eq } from "drizzle-orm";
+export const runtime = "nodejs";
 
-export async function GET(req: Request) {
+import { NextRequest, NextResponse } from "next/server";
+import { query } from "@/server/db";
+
+type LeadJson = {
+  id: string;
+  name: string;
+  source: string | null;
+  email: string | null;
+  phone: string | null;
+  responded: boolean | null;
+  responseAt: string | null;
+  createdAt: string;
+};
+
+// GET /api/leads
+export async function GET() {
   try {
-    const url = new URL(req.url);
-    const agentId = url.searchParams.get("agentId");
+    const rows = await query<LeadJson>(`
+      select
+        id,
+        name,
+        source,
+        email,
+        phone,
+        responded,
+        response_at as "responseAt",
+        created_at as "createdAt"
+      from leads
+      order by created_at desc
+      limit 200
+    `);
 
-    const rows = agentId
-      ? await db.select().from(leads).where(eq(leads.assignedAgentId, agentId)).limit(200)
-      : await db.select().from(leads).limit(200);
+    return NextResponse.json({ data: rows }, { status: 200 });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    console.error("[GET /api/leads] ERROR:", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
 
-    const out = rows.map((r) => ({
-      ...r,
-      createdAt: r.createdAt ? new Date(r.createdAt as any).getTime() : Date.now(),
-      responseAt: r.responseAt ? new Date(r.responseAt as any).getTime() : null,
-      score: r.score ? Number(r.score) : 0.5,
-    }));
+// POST /api/leads
+export async function POST(req: NextRequest) {
+  try {
+    const body = (await req.json()) as Partial<{
+      id: string;
+      name: string;
+      source: string | null;
+      email: string | null;
+      phone: string | null;
+      responded: boolean;
+      responseAt: string | null; // ISO
+    }>;
 
-    return NextResponse.json(out);
-  } catch (e) {
-    console.error("GET /api/leads error:", e);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    const { name } = body;
+    if (!name) {
+      return NextResponse.json({ error: "name is required" }, { status: 400 });
+    }
+
+    const rows = await query<LeadJson>(
+      `
+      insert into leads
+        (id, name, source, email, phone, responded, response_at)
+      values
+        ($1, $2, $3, $4, $5, $6, $7)
+      returning
+        id, name, source, email, phone, responded,
+        response_at as "responseAt",
+        created_at as "createdAt"
+      `,
+      [
+        body.id ?? null,
+        name,
+        body.source ?? null,
+        body.email ?? null,
+        body.phone ?? null,
+        typeof body.responded === "boolean" ? body.responded : null,
+        body.responseAt ?? null,
+      ]
+    );
+
+    return NextResponse.json({ data: rows[0] }, { status: 201 });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    console.error("[POST /api/leads] ERROR:", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

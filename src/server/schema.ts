@@ -1,5 +1,6 @@
-import { pgTable, text, timestamp, boolean, integer, numeric } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, boolean, integer, numeric, date } from "drizzle-orm/pg-core";
 
+// --- leads ---
 export const leads = pgTable("leads", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
@@ -9,19 +10,24 @@ export const leads = pgTable("leads", {
   priceRange: text("price_range"),
   notes: text("notes"),
   assignedAgentId: text("assigned_agent_id"),
-  createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
-  responded: boolean("responded").default(false),
-  responseAt: timestamp("response_at", { mode: "date" }),
-  slaSeconds: integer("sla_seconds").default(120),
-  score: numeric("score", { precision: 4, scale: 2 }),
+  // ✅ store with timezone
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow().notNull(),
+  responded: boolean("responded").default(false).notNull(),
+  // ✅ store with timezone
+  responseAt: timestamp("response_at", { withTimezone: true, mode: "date" }),
+  slaSeconds: integer("sla_seconds").default(120).notNull(),
+  score: numeric("score", { precision: 4, scale: 2 }).$type<string | null>(),
 });
 
+// --- complianceTasks ---
 export const complianceTasks = pgTable("compliance_tasks", {
   id: text("id").primaryKey(),
-  type: text("type").notNull(),        // "buyer_agreement" | "comp_disclosure"
+  type: text("type").notNull(),     // "buyer_agreement" | "comp_disclosure"
   client: text("client").notNull(),
-  status: text("status").notNull(),    // "missing" | "pending" | "done"
+  status: text("status").notNull(), // "missing" | "pending" | "done"
   agentId: text("agent_id"),
-  dueDate: timestamp("due_date", { mode: "date" }),
-  createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
+  // ✅ date-only column (no time)
+  dueDate: timestamp("due_date", { withTimezone: true, mode: "date" }),
+  // ✅ store with timezone
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow().notNull(),
 });

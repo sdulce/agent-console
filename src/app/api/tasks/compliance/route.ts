@@ -1,75 +1,76 @@
-// src/app/api/tasks/compliance/route.ts
 export const runtime = "nodejs";
 
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/server/db";
+
+type ComplianceRow = {
+  id: string;
+  type: string;
+  client: string;
+  status: "pending" | "in_review" | "completed" | "overdue";
+  agentId: string | null;
+  dueDate: string | null;    // ISO
+  createdAt: string;         // ISO
+};
 
 // GET /api/tasks/compliance
 export async function GET() {
   try {
-    const rows = await query(`
-      select id, type, client, status, agent_id as "agentId",
-             due_at as "dueDate", created_at as "createdAt"
+    const rows = await query<ComplianceRow>(`
+      select id, type, client, status,
+             agent_id as "agentId",
+             due_at as "dueDate",
+             created_at as "createdAt"
       from compliance_tasks
       order by created_at desc
       limit 200
     `);
 
-    return new Response(JSON.stringify({ data: rows }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
-  } catch (err: any) {
-    return new Response(JSON.stringify({ error: err?.message ?? "GET failed" }), {
-      status: 500,
-      headers: { "content-type": "application/json" },
-    });
+    return NextResponse.json({ data: rows }, { status: 200 });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "GET failed";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
 
 // POST /api/tasks/compliance
 export async function POST(req: NextRequest) {
   try {
-    const allowed = new Set(["pending", "in_review", "completed", "overdue"]);
+    const allowed = new Set(["pending", "in_review", "completed", "overdue"] as const);
 
-    const body = await req.json();
-    let { type, client, status = "pending", agentId = null, dueDate = null } = body ?? {};
+    const body = (await req.json()) as Partial<{
+      type: string;
+      client: string;
+      status: ComplianceRow["status"];
+      agentId: string | null;
+      dueDate: string | null; // ISO
+    }>;
 
-    // Validation checks
+    const { type, client, status = "pending", agentId = null, dueDate = null } = body;
+
     if (!type || !client) {
-      return new Response(JSON.stringify({ error: "type and client are required" }), {
-        status: 400,
-        headers: { "content-type": "application/json" },
-      });
+      return NextResponse.json({ error: "type and client are required" }, { status: 400 });
     }
-
     if (!allowed.has(status)) {
-      return new Response(JSON.stringify({ error: `invalid status: ${status}` }), {
-        status: 400,
-        headers: { "content-type": "application/json" },
-      });
+      return NextResponse.json({ error: `invalid status: ${status}` }, { status: 400 });
     }
 
-    // Insert row into DB
-    const rows = await query(
+    const rows = await query<ComplianceRow>(
       `
       insert into compliance_tasks (type, client, status, agent_id, due_at)
       values ($1, $2, $3, $4, $5)
-      returning id, type, client, status, agent_id as "agentId",
-                due_at as "dueDate", created_at as "createdAt"
+      returning id, type, client, status,
+                agent_id as "agentId",
+                due_at as "dueDate",
+                created_at as "createdAt"
       `,
       [type, client, status, agentId, dueDate]
     );
 
-    return new Response(JSON.stringify({ data: rows[0] }), {
-      status: 201,
-      headers: { "content-type": "application/json" },
-    });
-  } catch (err: any) {
+    return NextResponse.json({ data: rows[0] }, { status: 201 });
+  } catch (err: unknown) {
     console.error("[/api/tasks/compliance] ERROR:", err);
-    return new Response(JSON.stringify({ error: err?.message ?? "POST failed" }), {
-      status: 500,
-      headers: { "content-type": "application/json" },
-    });
+    const msg = err instanceof Error ? err.message : "POST failed";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
