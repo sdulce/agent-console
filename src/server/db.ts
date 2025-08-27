@@ -1,15 +1,56 @@
-import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
+// src/server/db.ts
+import { Pool, type PoolConfig, type QueryResultRow } from "pg";
+import fs from "fs";
+import path from "path";
 
-const url = process.env.DATABASE_URL;
-if (!url) throw new Error("DATABASE_URL is not set");
+const {
+  DATABASE_URL = "",
+  PG_SSL_DISABLE_VERIFY = "0",
+  PG_CA_PATH = "",
+} = process.env;
 
-const isProd = process.env.NODE_ENV === "production";
-const allowInsecure = process.env.ALLOW_INSECURE_SSL === "true";
+if (!DATABASE_URL) {
+  throw new Error("DATABASE_URL is not set");
+}
 
-export const pool = new Pool({
-  connectionString: url,                               // keep ?sslmode=require in the URL
-  ssl: isProd && !allowInsecure ? true : { rejectUnauthorized: false },
-});
+const disableVerify = PG_SSL_DISABLE_VERIFY === "1";
 
-export const db = drizzle(pool);
+// Optional CA load
+let ca: string | undefined;
+if (PG_CA_PATH) {
+  const p = path.resolve(process.cwd(), PG_CA_PATH);
+  if (fs.existsSync(p)) {
+    ca = fs.readFileSync(p, "utf8");
+  }
+}
+
+// Local dev: allow insecure verify bypass
+if (disableVerify) {
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+}
+
+const poolCfg: PoolConfig = {
+  connectionString: DATABASE_URL,
+  ssl: disableVerify
+    ? { rejectUnauthorized: false, ca }
+    : { rejectUnauthorized: true, ca },
+  max: 10,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 10_000,
+};
+
+export const db = new Pool(poolCfg);
+
+/**
+ * Typed query helper
+ * Constrains T to pg's QueryResultRow to satisfy the driver generics.
+ */
+export async function query<T extends QueryResultRow = QueryResultRow>(
+  text: string,
+  params?: unknown[]
+): Promise<T[]> {
+  const res = await db.query<T>(text, params as any[]);
+  return res.rows;
+}
