@@ -31,15 +31,26 @@ type Lead = {
   name: string;
   source?: string | null;
   phone?: string | null;
-  createdAt: number;
+  createdAt: number;              // epoch ms for timers
   assignedAgentId?: string | null;
   responded: boolean;
-  responseAt?: number | null;
+  responseAt?: number | null;     // epoch ms
   priceRange?: string | null;
   location?: string | null;
   notes?: string | null;
   slaSeconds: number;
-  score: number; // 0..1
+  score: number;                   // 0..1
+};
+
+type LeadWire = {
+  id: string;
+  name: string;
+  source: string | null;
+  email?: string | null;
+  phone: string | null;
+  responded: boolean | null;
+  responseAt: string | null;       // ISO
+  createdAt: string;               // ISO
 };
 
 type ComplianceTask = {
@@ -50,6 +61,18 @@ type ComplianceTask = {
   status: "missing" | "pending" | "done";
   agent: string;
 };
+
+type ComplianceWire = {
+  id: string;
+  type: "buyer_agreement" | "comp_disclosure" | "disclosure" | string;
+  client: string;
+  status: "pending" | "in_review" | "completed" | "overdue" | string;
+  agentId: string | null;
+  dueDate: string | null;          // ISO
+  createdAt: string;               // ISO
+};
+
+type Api<T> = { data: T };
 
 /* ---------------------------------------------------------------------------------------
    Helpers
@@ -81,17 +104,16 @@ const severityFor = (secs: number, responded: boolean): Severity => {
 const typeLabel = (t: ComplianceTask["type"]): string =>
   t === "buyer_agreement" ? "Buyer Agreement" : "Comp Disclosure";
 
-// safer JSON helper so UI never crashes on empty / non-JSON responses
-const safeJson = async (r: Response) => {
+// Safe JSON helper with typing
+async function safeJson<T>(r: Response): Promise<T> {
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const text = await r.text();
-  if (!text) return [];
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error("Invalid JSON");
+  if (!text) {
+    // @ts-expect-error allow empty body for endpoints returning nothing
+    return undefined;
   }
-};
+  return JSON.parse(text) as T;
+}
 
 /* ---------------------------------------------------------------------------------------
    Component
@@ -108,33 +130,64 @@ export default function AgentMobile() {
 
     // Leads
     fetch(`${API_BASE}/api/leads?agentId=${agentId}`)
-      .then(safeJson)
-      .then((rows: any[]) => {
-        setLeads((rows ?? []).map((r: any) => ({ ...r })) as Lead[]);
+      .then((res) => safeJson<Api<LeadWire[]>>(res))
+      .then((json) => {
+        const rows = json?.data ?? [];
+        const mapped: Lead[] = rows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          source: r.source ?? null,
+          phone: r.phone ?? null,
+          createdAt: Date.parse(r.createdAt),
+          assignedAgentId: agentId,
+          responded: Boolean(r.responded),
+          responseAt: r.responseAt ? Date.parse(r.responseAt) : null,
+          priceRange: null,
+          location: null,
+          notes: null,
+          slaSeconds: 120,
+          score: 0.75, // placeholder until scoring exists
+        }));
+        setLeads(mapped);
       })
-      .catch((e) => {
+      .catch((e: unknown) => {
         console.error("GET /api/leads failed", e);
         setLeads([]);
       });
 
     // Compliance tasks
     fetch(`${API_BASE}/api/tasks/compliance?agentId=${agentId}`)
-      .then(safeJson)
-      .then((rows: any[]) => {
+      .then((res) => safeJson<Api<ComplianceWire[]>>(res))
+      .then((json) => {
         const now = Date.now();
-        const mapped: ComplianceTask[] = (rows ?? []).map((r: any) => ({
-          id: r.id,
-          type: r.type,
-          client: r.client,
-          status: r.status,
-          agent: r.agentId ?? "You",
-          dueInDays: r.dueDate
+        const rows = json?.data ?? [];
+        const mapped: ComplianceTask[] = rows.map((r) => {
+          const dueInDays = r.dueDate
             ? Math.ceil((new Date(r.dueDate).getTime() - now) / 86400000)
-            : 0,
-        }));
+            : 0;
+
+          // Map backend status to mobile UI status
+          const uiStatus: ComplianceTask["status"] =
+            r.status === "completed" ? "done" : r.status === "pending" || r.status === "in_review"
+              ? "pending"
+              : "missing";
+
+          // Normalize type label for UI
+          const uiType: ComplianceTask["type"] =
+            r.type === "comp_disclosure" || r.type === "disclosure" ? "comp_disclosure" : "buyer_agreement";
+
+          return {
+            id: r.id,
+            type: uiType,
+            client: r.client,
+            status: uiStatus,
+            agent: r.agentId ?? "You",
+            dueInDays,
+          };
+        });
         setTasks(mapped);
       })
-      .catch((e) => {
+      .catch((e: unknown) => {
         console.error("GET /api/tasks/compliance failed", e);
         setTasks([]);
       });
@@ -170,7 +223,7 @@ export default function AgentMobile() {
       setLeads((prev) =>
         prev.map((l) => (l.id === id ? { ...l, responded: true, responseAt: Date.now() } : l))
       );
-    } catch (e) {
+    } catch (e: unknown) {
       console.error("POST mark responded failed", e);
     }
   };
@@ -185,7 +238,7 @@ export default function AgentMobile() {
       setTasks((prev) =>
         prev.map((t) => (t.id === id ? { ...t, dueInDays: t.dueInDays + 1 } : t))
       );
-    } catch (e) {
+    } catch (e: unknown) {
       console.error("POST snooze failed", e);
     }
   };
@@ -194,7 +247,7 @@ export default function AgentMobile() {
     try {
       await fetch(`${API_BASE}/api/compliance/${id}/complete`, { method: "POST" });
       setTasks((prev) => prev.filter((t) => t.id !== id));
-    } catch (e) {
+    } catch (e: unknown) {
       console.error("POST complete failed", e);
     }
   };
