@@ -1,18 +1,21 @@
 // src/server/db.ts
 import { Pool, type PoolConfig, type QueryResultRow } from "pg";
 
+// On Vercel, also force global TLS no-verify to avoid "self-signed certificate" issues
+if (process.env.VERCEL) {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+}
+
 const { DATABASE_URL } = process.env;
 if (!DATABASE_URL) throw new Error("DATABASE_URL is not set");
 
 /**
- * Supabase on Vercel:
- * - Use the Pooler URL (port 6543) with ?sslmode=require in Vercel env.
- * - Disable cert verification to avoid "self-signed certificate in certificate chain".
- *   This is common/acceptable for managed TLS in serverless.
+ * Use the Supabase Pooler URL (port 6543) in Vercel env.
+ * Keep SSL ON but disable certificate verification.
  */
 const poolCfg: PoolConfig = {
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }, // 👈 fixes the self-signed certificate error
+  connectionString: DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
   max: 10,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000,
