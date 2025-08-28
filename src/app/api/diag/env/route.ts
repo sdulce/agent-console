@@ -11,7 +11,7 @@ function safeParseDb(url?: string | null) {
       port: u.port,                  // e.g. "6543"
       pathname: u.pathname,          // e.g. "/postgres"
       hasSslModeRequire: u.search.includes("sslmode=require"),
-      hasUser: !!u.username,         // true/false only (no user value)
+      hasUser: !!u.username,         // true/false only (no secret)
     };
   } catch {
     return null;

@@ -42,7 +42,7 @@ export async function GET(_req: NextRequest) {
     }
 
     return NextResponse.json(result);
-  } catch (err: unknown) {
+    } catch (err: unknown) {
     const anyErr = err as any;
     const payload = {
       ok: false,
