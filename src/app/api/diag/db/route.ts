@@ -43,8 +43,14 @@ export async function GET(_req: NextRequest) {
 
     return NextResponse.json(result);
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error("[GET /api/diag/db] ERROR:", msg);
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    const anyErr = err as any;
+    const payload = {
+      ok: false,
+      name: anyErr?.name ?? "Error",
+      code: anyErr?.code ?? null,
+      error: anyErr instanceof Error ? anyErr.message : String(anyErr),
+    };
+    console.error("[GET /api/diag/db] ERROR:", payload);
+    return NextResponse.json(payload, { status: 500 });
   }
 }
