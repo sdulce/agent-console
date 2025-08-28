@@ -1,31 +1,25 @@
 export const runtime = "nodejs";
 
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { query } from "@/server/db";
+import type { IdCtx } from "@/types/route";
+import { getId } from "@/types/route";
 
 /**
  * Mark a compliance task as completed.
  * POST /api/compliance/[id]/complete
  */
-export async function POST(
-  _req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function POST(_req: NextRequest, ctx: IdCtx) {
   try {
+    const id = await getId(ctx);
+
     await query(
       `update compliance_tasks
          set status = 'completed'
        where id = $1`,
-      [params.id]
+      [id]
     );
-
-    // If you also want to clear the due date, use this instead:
-    // await query(
-    //   `update compliance_tasks
-    //      set status='completed', due_at = null
-    //    where id = $1`,
-    //   [params.id]
-    // );
 
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {

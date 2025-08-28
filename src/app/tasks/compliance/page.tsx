@@ -7,7 +7,7 @@ type Row = {
   id: string;
   type: "buyer_agreement" | "comp_disclosure";
   client: string;
-  status: "missing" | "pending" | "done";
+  status: "missing" | "pending" | "completed";
   agentId: string | null;
   dueDate: string | null; // ISO string from API
 };

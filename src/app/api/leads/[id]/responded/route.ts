@@ -1,27 +1,26 @@
 export const runtime = "nodejs";
 
-import { NextRequest, NextResponse } from "next/server";
-import { query } from "@/server/db"; // <-- use your typed SQL helper
-
-type Params = { params: { id: string } };
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
+import { query } from "@/server/db";
+import type { IdCtx } from "@/types/route";
+import { getId } from "@/types/route";
 
 /**
- * Mark a lead as responded and stamp response_at.
+ * Mark a lead as responded now.
  * POST /api/leads/[id]/responded
  */
-export async function POST(_req: NextRequest, { params }: Params) {
+export async function POST(_req: NextRequest, ctx: IdCtx) {
   try {
-    // If your column is snake_case in Postgres (common):
+    const id = await getId(ctx);
+
     await query(
       `update leads
          set responded = true,
              response_at = now()
        where id = $1`,
-      [params.id]
+      [id]
     );
-
-    // If your DB column is camelCase (less common), use this instead:
-    // await query(`update leads set responded = true, "responseAt" = now() where id = $1`, [params.id]);
 
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {

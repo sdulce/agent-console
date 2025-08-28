@@ -58,7 +58,7 @@ type ComplianceTask = {
   type: "buyer_agreement" | "comp_disclosure";
   client: string;
   dueInDays: number;
-  status: "missing" | "pending" | "done";
+  status: "missing" | "pending" | "completed";
   agent: string;
 };
 
@@ -168,7 +168,7 @@ export default function AgentMobile() {
 
           // Map backend status to mobile UI status
           const uiStatus: ComplianceTask["status"] =
-            r.status === "completed" ? "done" : r.status === "pending" || r.status === "in_review"
+            r.status === "completed" ? "completed" : r.status === "pending" || r.status === "in_review"
               ? "pending"
               : "missing";
 

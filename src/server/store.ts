@@ -22,7 +22,7 @@ export type TaskRow = {
   id: string;
   type: "buyer_agreement" | "comp_disclosure";
   client: string;
-  status: "missing" | "pending" | "done";
+  status: "missing" | "pending" | "completed";
   agentId?: string | null;
   dueDate?: string | null;   // ISO string
   createdAt: number;         // epoch ms
@@ -103,6 +103,6 @@ export function snoozeTask(id: string, days: number = 1): boolean {
 export function completeTask(id: string): boolean {
   const t = tasks.find((x) => x.id === id);
   if (!t) return false;
-  t.status = "done";
+  t.status = "completed";
   return true;
 }
