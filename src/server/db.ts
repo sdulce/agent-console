@@ -11,7 +11,7 @@ if (!DATABASE_URL) throw new Error("DATABASE_URL is not set");
  *   This is common/acceptable for managed TLS in serverless.
  */
 const poolCfg: PoolConfig = {
-  connectionString: DATABASE_URL,
+  connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }, // 👈 fixes the self-signed certificate error
   max: 10,
   idleTimeoutMillis: 30_000,
