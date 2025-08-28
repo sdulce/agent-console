@@ -1,19 +1,47 @@
 export const runtime = "nodejs";
 
-import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { query } from "@/server/db";
 
-export async function GET(_req: NextRequest) {
-  try {
-    const [version] = await query<{ version: string }>("select version()");
-    const [db] = await query<{ db: string }>("select current_database() as db");
-    const [usr] = await query<{ usr: string }>("select current_user as usr");
+type VersionRow = { version: string };
+type DbRow = { db: string };
+type UserRow = { usr: string };
+type ExistsRow = { exists: boolean };
+type CountRow = { count: number };
 
-    const [leadsExists] = await query<{ exists: boolean }>(
+function toErrorPayload(err: unknown) {
+  let name = "Error";
+  let error = "Unknown error";
+  let code: string | null = null;
+
+  if (err instanceof Error) {
+    name = err.name || name;
+    error = err.message || error;
+    const codeVal = (err as unknown as { code?: unknown }).code;
+    if (typeof codeVal === "string") code = codeVal;
+  } else if (err && typeof err === "object") {
+    const rec = err as { name?: unknown; message?: unknown; error?: unknown; code?: unknown };
+    if (typeof rec.name === "string") name = rec.name;
+    if (typeof rec.message === "string") error = rec.message;
+    if (typeof rec.error === "string") error = rec.error;
+    if (typeof rec.code === "string") code = rec.code;
+  } else if (typeof err === "string") {
+    error = err;
+  }
+
+  return { ok: false as const, name, code, error };
+}
+
+export async function GET() {
+  try {
+    const [version] = await query<VersionRow>("select version()");
+    const [db] = await query<DbRow>("select current_database() as db");
+    const [usr] = await query<UserRow>("select current_user as usr");
+
+    const [leadsExists] = await query<ExistsRow>(
       "select exists (select 1 from information_schema.tables where table_schema='public' and table_name='leads') as exists"
     );
-    const [compExists] = await query<{ exists: boolean }>(
+    const [compExists] = await query<ExistsRow>(
       "select exists (select 1 from information_schema.tables where table_schema='public' and table_name='compliance_tasks') as exists"
     );
 
@@ -23,33 +51,23 @@ export async function GET(_req: NextRequest) {
       db: db?.db,
       user: usr?.usr,
       tables: {
-        leads: leadsExists?.exists,
-        compliance_tasks: compExists?.exists,
+        leads: !!leadsExists?.exists,
+        compliance_tasks: !!compExists?.exists,
       },
     };
 
     if (leadsExists?.exists) {
-      const [c] = await query<{ count: string }>(
-        "select count(*)::int as count from leads"
-      );
-      result.leadsCount = Number(c?.count ?? 0);
+      const [c] = await query<CountRow>("select count(*)::int as count from leads");
+      result.leadsCount = c?.count ?? 0;
     }
     if (compExists?.exists) {
-      const [c2] = await query<{ count: string }>(
-        "select count(*)::int as count from compliance_tasks"
-      );
-      result.complianceTasksCount = Number(c2?.count ?? 0);
+      const [c2] = await query<CountRow>("select count(*)::int as count from compliance_tasks");
+      result.complianceTasksCount = c2?.count ?? 0;
     }
 
     return NextResponse.json(result);
-    } catch (err: unknown) {
-    const anyErr = err as any;
-    const payload = {
-      ok: false,
-      name: anyErr?.name ?? "Error",
-      code: anyErr?.code ?? null,
-      error: anyErr instanceof Error ? anyErr.message : String(anyErr),
-    };
+  } catch (err: unknown) {
+    const payload = toErrorPayload(err);
     console.error("[GET /api/diag/db] ERROR:", payload);
     return NextResponse.json(payload, { status: 500 });
   }
