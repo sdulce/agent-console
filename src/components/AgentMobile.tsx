@@ -22,6 +22,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 
+/** Toggle this to true to show the Tour Gate debug button */
+const SHOW_TOUR_GATE_DEBUG = false;
+
 /* ---------------------------------------------------------------------------------------
    Types
 --------------------------------------------------------------------------------------- */
@@ -113,6 +116,55 @@ async function safeJson<T>(r: Response): Promise<T> {
     return undefined;
   }
   return JSON.parse(text) as T;
+}
+
+/** Robust user date parser: supports ISO, 'YYYY-MM-DD HH:mm', and 'MM/DD/YYYY HH:mm AM/PM' */
+function parseTourDate(input: string): Date | null {
+  if (!input) return null;
+  const s = input.trim();
+
+  // If it's a clean ISO or includes 'T', let Date parse it.
+  if (/T\d{2}:\d{2}/.test(s)) {
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  // 'YYYY-MM-DD HH:mm' or 'YYYY-MM-DD HH:mm:ss'
+  let m =
+    s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (m) {
+    const [, y, mo, da, hh, mm, ss] = m;
+    const d = new Date(
+      Number(y),
+      Number(mo) - 1,
+      Number(da),
+      Number(hh),
+      Number(mm),
+      ss ? Number(ss) : 0
+    );
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  // 'MM/DD/YYYY', optionally with time and AM/PM
+  m = s.match(
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?:\s*(AM|PM))?)?$/i
+  );
+  if (m) {
+    const [, mo, da, y, hStr, minStr, ampm] = m;
+    let hh = hStr ? Number(hStr) : 9; // default 9:00 if only a date is given
+    const mm = minStr ? Number(minStr) : 0;
+    if (ampm) {
+      const up = ampm.toUpperCase();
+      if (up === "PM" && hh < 12) hh += 12;
+      if (up === "AM" && hh === 12) hh = 0;
+    }
+    const d = new Date(Number(y), Number(mo) - 1, Number(da), hh, mm, 0);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  // As a last resort, try Date.parse (covers some local formats)
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 /* ---------------------------------------------------------------------------------------
@@ -246,9 +298,71 @@ export default function AgentMobile() {
   const completeTask = async (id: string) => {
     try {
       await fetch(`${API_BASE}/api/compliance/${id}/complete`, { method: "POST" });
-      setTasks((prev) => prev.filter((t) => t.id !== id));
     } catch (e: unknown) {
       console.error("POST complete failed", e);
+    } finally {
+      // remove from list regardless; backend is idempotent
+      setTasks((prev) => prev.filter((t) => t.id !== id));
+    }
+  };
+
+  // ---- Gate + booking helpers ----
+  const canBookForLead = (lead: Lead): boolean => {
+    return tasks.some(
+      (t) =>
+        t.type === "buyer_agreement" &&
+        t.client === lead.name &&
+        t.status === "completed"
+    );
+  };
+
+  const bookTour = async (lead: Lead) => {
+    if (!canBookForLead(lead)) {
+      alert("Tour blocked: buyer agreement is not completed yet.");
+      return;
+    }
+    const propertyRaw = window.prompt("Property address or MLS #:");
+    if (!propertyRaw) return;
+    const property = propertyRaw.trim();
+    if (!property) return;
+
+    const whenRaw = window.prompt(
+      "Tour start (local).\nExamples:\n  • 2025-09-01 14:00\n  • 2025-09-01T14:00\n  • 09/01/2025 2:00 PM"
+    );
+    if (!whenRaw) return;
+
+    const dt = parseTourDate(whenRaw);
+    if (!dt) {
+      alert("Invalid date/time. Try: 2025-09-01 14:00  or  09/01/2025 2:00 PM  or  2025-09-01T14:00");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/tours/book`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          client: lead.name,
+          agentId: lead.assignedAgentId ?? "you",
+          leadId: lead.id,
+          property,
+          startsAt: dt.toISOString(),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        const reason =
+          json?.reason === "no_buyer_agreement"
+            ? "No buyer agreement found."
+            : json?.reason === "buyer_agreement_not_completed"
+            ? "Buyer agreement exists but is not completed."
+            : json?.error || `HTTP ${res.status}`;
+        alert(`⛔ ${reason}`);
+        return;
+      }
+      alert(`✅ Tour booked for ${lead.name} at ${property} on ${new Date(json.data.startsAt).toLocaleString()}`);
+    } catch (e: any) {
+      alert(e?.message || String(e));
     }
   };
 
@@ -399,6 +513,36 @@ export default function AgentMobile() {
                         onClick={() => markResponded(lead.id)}
                       >
                         <CheckCircle2 className="w-4 h-4 mr-1" /> Done
+                      </Button>
+                    )}
+
+                    {/* Book Tour (gated) */}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-2xl w-24"
+                      onClick={() => bookTour(lead)}
+                      disabled={!canBookForLead(lead)}
+                      title={!canBookForLead(lead) ? "Needs buyer agreement" : "Book a tour"}
+                    >
+                      Book Tour
+                    </Button>
+
+                    {/* Tour Gate DEBUG (optional, toggled by the flag at top) */}
+                    {SHOW_TOUR_GATE_DEBUG && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-2xl w-24"
+                        onClick={() =>
+                          alert(
+                            canBookForLead(lead)
+                              ? "✅ Allowed"
+                              : "⛔ Blocked (needs buyer agreement)"
+                          )
+                        }
+                      >
+                        Tour Gate
                       </Button>
                     )}
                   </div>
